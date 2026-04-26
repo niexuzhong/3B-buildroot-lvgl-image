@@ -1,0 +1,93 @@
+name: RPi3 LVGL Offline Image Builder
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          build-essential git wget cpio unzip rsync bc file \
+          python3 libncurses5-dev
+
+    - name: Clone Buildroot
+      run: |
+        git clone https://github.com/buildroot/buildroot.git
+        cd buildroot
+        git checkout 2024.02
+
+    # =========================
+    # Cache downloads (重要)
+    # =========================
+    - name: Prepare download cache dir
+      run: |
+        mkdir -p buildroot-dl
+
+    # =========================
+    # Build config
+    # =========================
+    - name: Configure Raspberry Pi 3
+      run: |
+        cd buildroot
+        make raspberrypi3_defconfig
+
+    # 指定下载缓存目录（关键）
+    - name: Set DL_DIR
+      run: |
+        echo "BR2_DL_DIR=$GITHUB_WORKSPACE/buildroot-dl" >> $GITHUB_ENV
+
+    # =========================
+    # Build system
+    # =========================
+    - name: Build system
+      run: |
+        cd buildroot
+        make -j2
+
+    # =========================
+    # Collect artifacts
+    # =========================
+    - name: Collect sdcard image
+      run: |
+        mkdir -p out
+        cp buildroot/output/images/sdcard.img out/
+
+    - name: Archive full build output
+      run: |
+        tar -czf output.tar.gz buildroot/output
+
+    - name: Archive download cache
+      run: |
+        tar -czf buildroot-dl.tar.gz buildroot-dl
+
+    # =========================
+    # Upload artifacts
+    # =========================
+    - name: Upload sdcard image
+      uses: actions/upload-artifact@v4
+      with:
+        name: sdcard-image
+        path: out/sdcard.img
+
+    - name: Upload build output
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-output
+        path: output.tar.gz
+
+    - name: Upload download cache
+      uses: actions/upload-artifact@v4
+      with:
+        name: buildroot-download-cache
+        path: buildroot-dl.tar.gz
